@@ -40,59 +40,65 @@ class Contr(Atom):
         return isinstance(other, Contr)
 
 
-class NotExpr(Expression):
-    def __init__(self, content: Expression):
+class OperatorExpr(Expression, ABC):
+    def __init__(self, symbol: str, priority: int):
         super().__init__()
+        self.symbol = symbol
+        self.priority = priority
+
+
+class NotExpr(OperatorExpr):
+    def __init__(self, content: Expression):
+        super().__init__("~", 60)
         self.content = content
 
     def __eq__(self, other):
         return isinstance(other, NotExpr) and self.content == other.content
 
     def __str__(self):
-        if isinstance(self.content, Atom):
-            inside = self.content
-        else:
+        if isinstance(self.content, OperatorExpr) and self.content.priority < self.priority:
             inside = f"({self.content})"
+        else:
+            inside = self.content
         return f"~{inside}"
 
 
-class BinaryExpr(Expression, ABC):
-    def __init__(self, left: Expression, right: Expression, symbol: str):
-        super().__init__()
+class BinaryExpr(OperatorExpr, ABC):
+    def __init__(self, left: Expression, right: Expression, symbol: str, priority: int):
+        super().__init__(symbol, priority)
         self.left = left
         self.right = right
-        self.symbol = symbol
 
     def __eq__(self, other):
         return isinstance(self, other.__class__) and self.left == other.left and self.right == other.right
 
     def __str__(self):
-        if isinstance(self.left, Atom):
-            left = str(self.left)
+        if isinstance(self.left, OperatorExpr) and self.left.priority < self.priority:
+            left = f"({self.left})"
         else:
-            left = f"({str(self.left)})"
+            left = self.left
 
-        if isinstance(self.right, Atom):
-            right = str(self.right)
+        if isinstance(self.right, OperatorExpr) and self.right.priority < self.priority:
+            right = f"({self.right})"
         else:
-            right = f"({str(self.right)})"
+            right = self.right
 
         return f"{left} {self.symbol} {right}"
 
 
 class OrExpr(BinaryExpr):
     def __init__(self, left: Expression, right: Expression):
-        super().__init__(left, right, "v")
+        super().__init__(left, right, "v", 20)
 
 
 class AndExpr(BinaryExpr):
     def __init__(self, left: Expression, right: Expression):
-        super().__init__(left, right, "&")
+        super().__init__(left, right, "^", 50)
 
 
 class ImpExpr(BinaryExpr):
     def __init__(self, left: Expression, right: Expression):
-        super().__init__(left, right, "-->")
+        super().__init__(left, right, "→", 5)
 
 
 class Reference:
@@ -142,15 +148,15 @@ class Rule(Enum):
     def __str__(self):
         outs = [
             "A",
-            "&E",
-            "&I",
+            "^E",
+            "^I",
             "~~E",
             "~E",
             "~I",
             "vI",
             "vE",
-            "-->I",
-            "-->E",
+            "→I",
+            "→E",
             "RAA"
         ]
         return outs[self.value]
@@ -168,17 +174,21 @@ class ProofLine:
 
 
 class Goal:
-    def __init__(self, assumptions: Set[int], content: Expression):
+    def __init__(self, assumptions: Set[int], assumption_map: List[Expression], content: Expression):
         self.assumptions = assumptions
+        self.assumption_map = assumption_map
         self.content = content
+
+    def __str__(self):
+        return ", ".join([str(x) for x in self.assumption_map]) + " ⊢ " + str(self.content)
 
 
 class Proof:
     def __init__(self, premises: List[Expression], goal: Expression):
         # Everything in self.lines is assumed to be a correctly added line.
         self.lines = [ProofLine({i}, premises[i], References(), Rule.ASSUMPTION) for i in range(len(premises))]
-        self.goal = Goal(set(range(len(self.lines))), goal)
-        self.assumption_map = premises
+        self.assumption_map = [x for x in premises] # make a copy of the original premises.
+        self.goal = Goal(set(range(len(self.lines))), premises, goal)
         self.can_add_funcs = [
             self.can_add_assumption,
             self.can_add_and_elim,
@@ -425,11 +435,146 @@ class Proof:
 
     def __str__(self):
         table = [line.to_repr_list() for line in self.lines]
-        return str(tabulate(table, tablefmt="plain", showindex="always"))
+        return f"Goal: {self.goal}\n{str(tabulate(table, tablefmt='plain', showindex='always'))}"
 
 
-def parse_expr(expr: str):
-    pass
+BIN_OPS = {'→': 1, 'v': 2, '^': 3}
+UNI_OPS = {'~': 4}
+
+
+def isOperator(x):
+    return x in BIN_OPS or x in UNI_OPS
+
+
+def isBinaryOperator(c):
+    return c in BIN_OPS.keys()
+
+
+def isUnaryOperator(c):
+    return c in UNI_OPS
+
+
+# Function to find priority
+# of given operator.
+def getPriority(x):
+    if x in BIN_OPS: return BIN_OPS[x]
+    if x in UNI_OPS: return UNI_OPS[x]
+    return 0
+
+
+def extractGroup(operators, operands):
+    op = operators.pop()
+    if isUnaryOperator(op):
+        if not operands:
+            return op
+        op1 = operands.pop()
+        tmp = op + op1
+    else:
+        op1 = operands.pop()
+        op2 = operands.pop()
+
+        tmp = op + op2 + op1
+    return tmp
+
+
+def infixToPrefix(infix):
+    # stack for operators.
+    operators = []
+
+    # stack for operands.
+    operands = []
+
+    i = 0
+    while i < len(infix):
+        cur = infix[i]
+        if (cur == '('):
+            operators.append(cur)
+
+        elif (cur == ')'):
+            while (len(operators) > 0 and operators[-1] != '('):
+                tmp = extractGroup(operators, operands)
+                operands.append(tmp)
+            # Pop opening bracket from stack.
+            operators.pop()
+
+        # If current character is an operand then push into operands stack.
+        elif not (isBinaryOperator(cur) or isUnaryOperator(cur)):
+            operands.append(cur)
+        else:
+            if isBinaryOperator(cur):
+                while len(operators) > 0 and getPriority(cur) <= getPriority(operators[-1]):
+                    tmp = extractGroup(operators, operands)
+                    operands.append(tmp)
+            operators.append(cur)
+
+        i += 1
+
+    while len(operators) > 0:
+        tmp = extractGroup(operators, operands)
+        operands.append(tmp)
+
+    # Final prefix expression is
+    # present in operands stack.
+    return operands[-1]
+
+
+def recurseExpr(expr: str) -> Expression:
+    if len(expr) == 1 and not isOperator(expr):
+        return Atom(expr)
+
+    exprstack = []
+    for char in expr:
+        if char in UNI_OPS or char in BIN_OPS:
+            exprstack.append([char])
+        else:
+            exprstack[-1].append(char)
+
+symbolToCls = {
+    "~": NotExpr,
+    "^": AndExpr,
+    "v": OrExpr,
+    "→": ImpExpr
+}
+
+
+def parseExpr(expr: str) -> Optional[Expression]:
+    if not expr: return None
+    expr = (expr
+            .replace("-->", "→")
+            .replace("->", "→")
+            .replace(" ", ""))
+    prefix_expr = infixToPrefix(expr)
+
+    stack = []
+    for char in prefix_expr:
+        if char in symbolToCls:
+            stack.append([symbolToCls[char]])
+        elif not stack:
+            stack.append([Atom(char)])
+        else:
+            stack[-1].append(Atom(char))
+
+        while True:
+            last = stack[-1]
+            operator = last[0]
+            if isinstance(operator, Atom):
+                break
+
+            if BinaryExpr in operator.__mro__ and len(last) == 3:
+                stack.pop()
+                compiled = operator(last[1], last[2])
+            elif NotExpr in operator.__mro__ and len(last) == 2:
+                stack.pop()
+                compiled = operator(last[1])
+            else:
+                break
+
+            if stack:
+                stack[-1].append(compiled)
+            else:
+                return compiled
+
 
 if __name__ == "__main__":
-    print(Rule.ASSUMPTION.value)
+    print(infixToPrefix("~(pvq)^(r→s)"))
+    print(parseExpr("~~(pvq)^~(r→s)"))

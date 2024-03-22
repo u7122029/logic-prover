@@ -111,7 +111,7 @@ class CanAddTests(unittest.TestCase):
         p_imp_q = ImpExpr(p,q)
         pf = Proof([p, p_imp_q], q)
         pls = [
-            ProofLine({0, 1}, q, [Reference(0), Reference(1)], Rule.IMPLIES_ELIM)
+            ProofLine({0, 1}, q, References(Reference(0), Reference(1)), Rule.IMPLIES_ELIM)
         ]
         for pl in pls:
             self.assertTrue(pf.can_add_line(pl))
@@ -124,10 +124,10 @@ class CanAddTests(unittest.TestCase):
         c_imp_p = ImpExpr(c, p)
         pf = Proof([], c_imp_p)
         pls = [
-            ProofLine({0}, c, [], Rule.ASSUMPTION),
-            ProofLine({0}, NotExpr(NotExpr(p)), [Reference(0, "v")], Rule.NOT_INTRO),
-            ProofLine({0}, p, [Reference(1)], Rule.DNE),
-            ProofLine(set(), c_imp_p, [Reference(2, 0)], Rule.IMPLIES_INTRO)
+            ProofLine({0}, c, References(), Rule.ASSUMPTION),
+            ProofLine({0}, NotExpr(NotExpr(p)), References(Reference(0, "v")), Rule.NOT_INTRO),
+            ProofLine({0}, p, References(Reference(1)), Rule.DNE),
+            ProofLine(set(), c_imp_p, References(Reference(2, 0)), Rule.IMPLIES_INTRO)
         ]
         for pl in pls:
             self.assertTrue(pf.can_add_line(pl))
@@ -142,7 +142,7 @@ class CanAddTests(unittest.TestCase):
         p_imp_q = ImpExpr(p, q)
         pf = Proof([q], p_imp_q)
         pls = [
-            ProofLine({0}, p_imp_q, [Reference(0, "v")], Rule.IMPLIES_INTRO)
+            ProofLine({0}, p_imp_q, References(Reference(0, "v")), Rule.IMPLIES_INTRO)
         ]
         for pl in pls:
             self.assertTrue(pf.try_add_line(pl))
